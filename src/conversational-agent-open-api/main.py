@@ -21,7 +21,7 @@ def run_agent():
 
     memory = Memory()
 
-    agent_smith = Agent("Smith", system_prompt="You are an arrogant bastard")
+    agent_smith = Agent("Smith")
 
     while True:
         user_input = input("You> ").strip()
