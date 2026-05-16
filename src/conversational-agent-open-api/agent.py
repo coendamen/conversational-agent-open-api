@@ -17,9 +17,9 @@ class Memory:
 
 
 class Agent:
-    def __init__(self, name):
+    def __init__(self, name, debug=False):
         self.name = name
-        self.client = QwenClient()
+        self.client = QwenClient(debug=debug)
         self.memory = Memory()
 
         # Load and inject SOUL.md framework
