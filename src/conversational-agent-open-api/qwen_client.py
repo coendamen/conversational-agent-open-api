@@ -9,7 +9,7 @@ class QwenClient:
         self.base_url = "http://host.docker.internal:8000/v1/chat/completions"
         self.model = "Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4"
         self.debug = debug
-        self.openserp_url = "http://host.docker.internal:7000/google/search"
+        self.openserp_url = "http://host.docker.internal:7000/duck/search"
 
     # ---------------------------------------------------------
     # Fetch readable text from a webpage
@@ -66,7 +66,7 @@ class QwenClient:
         search_results = data.get("results", [])
 
         if self.debug:
-            print(f"[DEBUG] OpenSERP returned {len(search_results)} total results")
+            print(f"[DEBUG] OpenSERP returned {search_results} total results")
 
         for idx, result in enumerate(search_results):
             title = result.get("title", "")
@@ -79,7 +79,7 @@ class QwenClient:
                 continue
 
             results.append(
-                f"• **{title}**\n  URL: {url}\n  {snippet}"
+                f"• **{title}**\n  URL: {url[:50]}\n  {snippet}"
             )
 
         if self.debug:
