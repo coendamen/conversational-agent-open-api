@@ -4,15 +4,21 @@ from qwen_client import QwenClient
 
 
 class Memory:
-    def __init__(self, max_turns=20):
+    def __init__(self, max_turns=100):
         self.max_turns = max_turns
         self.messages = []
 
     def add(self, role, content):
         self.messages.append({"role": role, "content": content})
-        self.messages = self.messages[-self.max_turns:]
+        # Keep system message + last max_turns user/assistant exchanges
+        if len(self.messages) > self.max_turns + 1:
+            self.messages = [self.messages[0]] + self.messages[-(self.max_turns):]
 
     def get(self):
+        return self.messages
+
+    def get_safe_subset(self, max_chars=None):
+        """Return all messages - no trimming."""
         return self.messages
 
 
@@ -34,6 +40,8 @@ class Agent:
         if soul_path.exists():
             with open(soul_path, 'r', encoding='utf-8') as f:
                 soul_content = f.read()
+        else:
+            soul_content = ""
 
         # Replace agent name placeholder
         soul_content = soul_content.replace("{{AGENT_NAME}}", self.name)
@@ -41,6 +49,8 @@ class Agent:
 
     def send(self, message):
         self.memory.add("user", message)
-        reply = self.client.chat(self.memory.get())
+
+        # Send all messages - no trimming
+        reply = self.client.chat(self.memory.get(), max_tokens=1024)
         self.memory.add("assistant", reply)
         return reply

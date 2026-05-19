@@ -1,13 +1,15 @@
 import json
+
 import requests
 from bs4 import BeautifulSoup
 
 
 class QwenClient:
-    def __init__(self, base_url="http://host.docker.internal:8000/v1/chat/completions", debug=False):
-        self.base_url = base_url
+    def __init__(self, debug=False):
+        self.base_url = "http://host.docker.internal:8000/v1/chat/completions"
         self.model = "Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4"
         self.debug = debug
+        self.openserp_url = "http://host.docker.internal:7000/google/search"
 
     # ---------------------------------------------------------
     # Fetch readable text from a webpage
@@ -39,54 +41,56 @@ class QwenClient:
         return cleaned[:5000]
 
     # ---------------------------------------------------------
-    # DuckDuckGo HTML search (works reliably)
+    # OpenSERP API search
     # ---------------------------------------------------------
-    def web_search(self, query: str):
-        url = "https://duckduckgo.com/html/"
-        params = {"q": query}
-
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0 Safari/537.36"
-            )
-        }
+    def web_search(self, query: str, max_results=None):
+        """Search using OpenSERP API. Use snippets, no page fetching."""
+        params = {"text": query, "limit": 50, "lang": "EN"}
 
         try:
-            r = requests.get(url, params=params, headers=headers, timeout=10)
+            r = requests.get(self.openserp_url, params=params, timeout=10)
             r.raise_for_status()
         except Exception as e:
             return f"[Web search failed: {e}]"
 
-        soup = BeautifulSoup(r.text, "html.parser")
+        try:
+            data = r.json()
+        except Exception as e:
+            return f"[Failed to parse OpenSERP response: {e}]"
+
+        if self.debug:
+            print(f"\n[DEBUG] OpenSERP raw response keys: {data.keys()}")
+
+        # Use snippets from SERP results
         results = []
+        search_results = data.get("results", [])
 
-        for result in soup.select(".result"):
-            title_elem = result.select_one(".result__title")
-            link_elem = result.select_one("a.result__a")
+        if self.debug:
+            print(f"[DEBUG] OpenSERP returned {len(search_results)} total results")
 
-            if not title_elem or not link_elem:
+        for idx, result in enumerate(search_results):
+            title = result.get("title", "")
+            url = result.get("url", "")
+            snippet = result.get("snippet", "")
+
+            if not url or not snippet:
+                if self.debug:
+                    print(f"[DEBUG] Skipping result {idx}: title='{title[:50]}', has_url={bool(url)}, has_snippet={bool(snippet)}")
                 continue
 
-            title = title_elem.get_text(strip=True)
-            page_url = link_elem["href"]
-
-            page_text = self.fetch_page_text(page_url)
-
             results.append(
-                f"### {title}\nURL: {page_url}\n\nContent:\n{page_text}\n\n---\n"
+                f"• **{title}**\n  URL: {url}\n  {snippet}"
             )
 
-            if len(results) >= 3:
-                break
+        if self.debug:
+            print(f"[DEBUG] Processed {len(results)} valid results\n")
 
-        return "\n".join(results) if results else "[No search results found]"
+        return "\n\n".join(results) if results else "[No search results found]"
 
     # ---------------------------------------------------------
     # Chat with Qwen (tool-calling enabled)
     # ---------------------------------------------------------
-    def chat(self, messages, max_tokens=512):
+    def chat(self, messages, max_tokens=1024):
         payload = {
             "model": self.model,
             "messages": messages,
@@ -97,7 +101,7 @@ class QwenClient:
                     "type": "function",
                     "function": {
                         "name": "web_search",
-                        "description": "Search the web using DuckDuckGo and fetch page content.",
+                        "description": "Search the web using OpenSERP and fetch page content for current information.",
                         "parameters": {
                             "type": "object",
                             "properties": {
