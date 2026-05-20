@@ -1,15 +1,20 @@
 import json
+import logging
+import utils
 
 import requests
 from bs4 import BeautifulSoup
 
+logging.basicConfig(level=logging.INFO)
+
 
 class QwenClient:
-    def __init__(self, debug=False):
+    def __init__(self):
         self.base_url = "http://host.docker.internal:8000/v1/chat/completions"
         self.model = "Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4"
-        self.debug = debug
-        self.openserp_url = "http://host.docker.internal:7000/duck/search"
+        self.openserp_url = "http://host.docker.internal:7000/bing/search"
+
+
 
     # ---------------------------------------------------------
     # Fetch readable text from a webpage
@@ -44,13 +49,25 @@ class QwenClient:
     # OpenSERP API search
     # ---------------------------------------------------------
     def web_search(self, query: str, max_results=None):
-        """Search using OpenSERP API. Use snippets, no page fetching."""
+        """Search using OpenSERP API. Use snippets, no page fetching.
+
+        If query contains "today" or a specific date, adds date constraint to search.
+        Supports various date formats like "May 20, 2026", "2026-05-20", "05/20/2026", etc.
+        """
         params = {"text": query, "limit": 50, "lang": "EN"}
 
+
+        # Try to extract and parse any date from the query
+        start_date, end_date = utils.extract_and_parse_date(query)
+        if start_date and end_date:
+            params["date"] = f"{start_date}..{end_date}"
+            logging.info(f"Added date constraint: {params['date']}")
+
         try:
-            r = requests.get(self.openserp_url, params=params, timeout=10)
+            r = requests.get(self.openserp_url, params=params, timeout=60)
             r.raise_for_status()
         except Exception as e:
+            logging.error(f"OpenSERP search failed for query '{query}': {e}")
             return f"[Web search failed: {e}]"
 
         try:
@@ -58,15 +75,13 @@ class QwenClient:
         except Exception as e:
             return f"[Failed to parse OpenSERP response: {e}]"
 
-        if self.debug:
-            print(f"\n[DEBUG] OpenSERP raw response keys: {data.keys()}")
+        logging.debug(f"\nOpenSERP raw response keys: {data.keys()}")
 
         # Use snippets from SERP results
         results = []
         search_results = data.get("results", [])
 
-        if self.debug:
-            print(f"[DEBUG] OpenSERP returned {search_results} total results")
+        logging.info(f"OpenSERP returned {len(search_results)} total results")
 
         for idx, result in enumerate(search_results):
             title = result.get("title", "")
@@ -74,16 +89,17 @@ class QwenClient:
             snippet = result.get("snippet", "")
 
             if not url or not snippet:
-                if self.debug:
-                    print(f"[DEBUG] Skipping result {idx}: title='{title[:50]}', has_url={bool(url)}, has_snippet={bool(snippet)}")
+                logging.debug(
+                    f"Skipping result {idx}: title='{title[:50]}', has_url={bool(url)}, has_snippet={bool(snippet)}")
                 continue
 
             results.append(
                 f"• **{title}**\n  URL: {url[:50]}\n  {snippet}"
             )
 
-        if self.debug:
-            print(f"[DEBUG] Processed {len(results)} valid results\n")
+            logging.info(f"{title}**\n  URL: {url[:50]}\n  {snippet}")
+
+        logging.info(f"Processed {len(results)} valid results\n")
 
         return "\n\n".join(results) if results else "[No search results found]"
 
@@ -101,7 +117,7 @@ class QwenClient:
                     "type": "function",
                     "function": {
                         "name": "web_search",
-                        "description": "Search the web using OpenSERP and fetch page content for current information.",
+                        "description": "Search the web using OpenSERP for current information. Always include the current date context in temporal queries (e.g., 'today news', 'recent events') to ensure accurate, up-to-date results.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -114,17 +130,15 @@ class QwenClient:
             ]
         }
 
-        if self.debug:
-            print("[DEBUG] Sending payload:")
-            print(json.dumps(payload, indent=2))
+        logging.debug("[DEBUG] Sending payload:")
+        logging.debug(json.dumps(payload, indent=2))
 
         response = requests.post(self.base_url, json=payload)
         response.raise_for_status()
         data = response.json()
 
-        if self.debug:
-            print("[DEBUG] Response:")
-            print(json.dumps(data, indent=2))
+        logging.debug("[DEBUG] Response:")
+        logging.debug(json.dumps(data, indent=2))
 
         msg = data["choices"][0]["message"]
 
@@ -136,8 +150,7 @@ class QwenClient:
             args = json.loads(tool["function"]["arguments"])
             query = args.get("query", "")
 
-            if self.debug:
-                print(f"[DEBUG] Tool call: web_search('{query}')")
+            logging.info(f"[DEBUG] Tool call: web_search('{query}')")
 
             search_results = self.web_search(query)
 

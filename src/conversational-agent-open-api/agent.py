@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime
 
 from qwen_client import QwenClient
 
@@ -25,7 +26,7 @@ class Memory:
 class Agent:
     def __init__(self, name, debug=False):
         self.name = name
-        self.client = QwenClient(debug=debug)
+        self.client = QwenClient()
         self.memory = Memory()
 
         # Load and inject SOUL.md framework
@@ -34,7 +35,7 @@ class Agent:
         self.memory.add("system", soul_content)
 
     def _load_soul_framework(self):
-        """Load SOUL.md and inject agent name."""
+        """Load SOUL.md and inject agent name and current date."""
         soul_path = Path(__file__).parent / "SOUL.md"
 
         if soul_path.exists():
@@ -43,8 +44,10 @@ class Agent:
         else:
             soul_content = ""
 
-        # Replace agent name placeholder
+        # Replace agent name and current date
         soul_content = soul_content.replace("{{AGENT_NAME}}", self.name)
+        current_date = datetime.now().strftime("%B %d, %Y")
+        soul_content = soul_content.replace("{{CURRENT_DATE}}", current_date)
         return soul_content
 
     def send(self, message):
