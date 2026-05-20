@@ -1,7 +1,8 @@
 import logging
 import random
 import time
-from urllib.parse import urlparse, quote_plus
+from urllib.parse import quote_plus
+from urllib.parse import urlparse, parse_qs, unquote
 
 import requests
 from bs4 import BeautifulSoup
@@ -34,7 +35,6 @@ class ResilientDuckDuckGoScraper:
         "Sec-Fetch-Site": "none",
         "Sec-Fetch-User": "?1",
     }
-
 
     def __init__(
             self,
@@ -108,16 +108,16 @@ class ResilientDuckDuckGoScraper:
         logging.info(f"[DDG] Parsing search results for query: {soup}")
 
         links = []
-        for a in soup.select(".result__a"):
+        for a in soup.select("a.result__a"):
             href = a.get("href")
-            if href and href.startswith("http"):
-                links.append(href)
+            real_url = self._decode_ddg_link(href)
+            links.append(real_url)
+
             if len(links) >= max_results:
                 break
 
         logging.info(f"[DDG] Found {len(links)} results for query: {cleaned}")
         return links
-
 
     # ---------------------------------------------------------
     # Resilient fetch
@@ -221,3 +221,11 @@ class ResilientDuckDuckGoScraper:
         snippet = " ".join(lines)[:max_chars].rstrip()
 
         return snippet + "..."
+
+    def _decode_ddg_link(self, href):
+        if href.startswith("//duckduckgo.com/l/?"):
+            parsed = urlparse(href)
+            qs = parse_qs(parsed.query)
+            if "uddg" in qs:
+                return unquote(qs["uddg"][0])
+        return href
