@@ -18,8 +18,9 @@ def run_agent(debug=False):
         except Exception as e:
             reply = f"Error communicating with Qwen: {e}"
 
-
         print(f"Qwen> {reply}\n")
+
+        agent_smith.memory.print_size()
 
 
 def run_duo_chat(debug=False):
@@ -30,7 +31,6 @@ def run_duo_chat(debug=False):
 
     print(f"Alice> {message}")
     for turn in range(10):
-
         reply = bob.send(message)
 
         print(f"Bob> {reply}")

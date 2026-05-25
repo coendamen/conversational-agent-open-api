@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from datetime import datetime
 
@@ -21,6 +22,12 @@ class Memory:
     def get_safe_subset(self, max_chars=None):
         """Return all messages - no trimming."""
         return self.messages
+
+    def get_size(self):
+        return sum(len(m["content"]) for m in self.messages)
+
+    def print_size(self):
+        logging.info(f"Memory size: {self.get_size()} characters")
 
 
 class Agent:

@@ -2,6 +2,7 @@ import json
 import logging
 
 import requests
+
 import duckduckgoscraper
 
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +28,7 @@ class QwenClient:
                     "type": "function",
                     "function": {
                         "name": "web_search",
-                        "description": "Search the web using OpenSERP for current information. Always include the current date context in temporal queries (e.g., 'today news', 'recent events') to ensure accurate, up-to-date results.",
+                        "description": "Search the web using local scrapers for current information. Always include the current date context in temporal queries (e.g., 'today news', 'recent events') to ensure accurate, up-to-date results.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -36,7 +37,22 @@ class QwenClient:
                             "required": ["query"]
                         }
                     }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "scrape_url",
+                        "description": "Directly scrape the content of a given URL if a url is in the message.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "url": {"type": "string", "description": "URL to scrape"}
+                            },
+                            "required": ["url"]
+                        }
+                    }
                 }
+
             ]
         }
 
@@ -58,11 +74,18 @@ class QwenClient:
         if "tool_calls" in msg and msg["tool_calls"]:
             tool = msg["tool_calls"][0]
             args = json.loads(tool["function"]["arguments"])
-            query = args.get("query", "")
 
-            logging.info(f"[DEBUG] Tool call: web_search('{query}')")
+            if tool["function"]["name"] == "web_search":
+                query = args["query"]
+                logging.info(f"[DEBUG] Tool call: web_search('{query}')")
+                search_results = duckduckgoscraper.ResilientDuckDuckGoScraper().search_and_scrape(query, max_results=10)
 
-            search_results = duckduckgoscraper.ResilientDuckDuckGoScraper().search_and_scrape(query)
+                tool_result = search_results
+
+            elif tool["function"]["name"] == "scrape_url":
+                url = args["url"]
+                logging.info(f"[DEBUG] Tool call: scrape_url('{url}')")
+                tool_result = duckduckgoscraper.ResilientDuckDuckGoScraper().scrape_direct(url)
 
             followup_payload = {
                 "model": self.model,
@@ -72,7 +95,7 @@ class QwenClient:
                     {
                         "role": "tool",
                         "tool_call_id": tool["id"],
-                        "content": search_results
+                        "content": tool_result
                     }
                 ],
                 "max_tokens": max_tokens
@@ -85,3 +108,4 @@ class QwenClient:
             return final["choices"][0]["message"]["content"]
 
         return msg["content"]
+

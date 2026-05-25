@@ -1,5 +1,6 @@
 import logging
 import random
+import re
 import time
 from urllib.parse import quote_plus
 from urllib.parse import urlparse, parse_qs, unquote
@@ -63,6 +64,7 @@ class ResilientDuckDuckGoScraper:
 
         results = []
         for url in urls:
+            logging.info(f"[Scraper] Fetching URL: {url}")
             scraped = self.fetch(url)
             results.append(scraped)
 
@@ -92,26 +94,32 @@ class ResilientDuckDuckGoScraper:
 
         encoded = quote_plus(cleaned)
 
-        url = f"https://duckduckgo.com/html/?q={encoded}&kl=us-en&df=d"
-
-        headers = {"User-Agent": random.choice(self.DEFAULT_UAS)}
-
-        logging.info(f"[DDG] Searching DuckDuckGo for: {url}")
-
-        self.session = requests.Session()
-
-        r = self.session.get(url, headers=self.BROWSER_HEADERS, timeout=self.timeout)
-        r.raise_for_status()
-
-        soup = BeautifulSoup(r.text, "html.parser")
-
-        logging.info(f"[DDG] Parsing search results for query: {soup}")
-
         links = []
-        for a in soup.select("a.result__a"):
-            href = a.get("href")
-            real_url = self._decode_ddg_link(href)
-            links.append(real_url)
+
+        for page in range(3):  # 0, 1, 2
+            offset = page * 5  # real DDG pagination: 0, 5, 10
+
+            paged_url = (
+                f"https://duckduckgo.com/html/?q={encoded}"
+                f"&kl=us-en&df=d&s={offset}"
+            )
+
+            logging.info(f"[DDG] Searching DuckDuckGo page {page}: {paged_url}")
+
+            self.session = requests.Session()
+
+            r = self.session.get(paged_url, headers=self.BROWSER_HEADERS, timeout=self.timeout)
+            r.raise_for_status()
+
+            soup = BeautifulSoup(r.text, "html.parser")
+
+            for a in soup.select("a.result__a"):
+                href = a.get("href")
+                real_url = self._decode_ddg_link(href)
+                links.append(real_url)
+
+                if len(links) >= max_results:
+                    break
 
             if len(links) >= max_results:
                 break
@@ -138,14 +146,13 @@ class ResilientDuckDuckGoScraper:
             try:
                 self._throttle_domain(domain)
 
-                headers = {"User-Agent": random.choice(self.DEFAULT_UAS)}
                 proxy = self._pick_proxy()
 
                 logging.debug(f"[Scraper] Attempt {attempt} → {url}")
 
                 r = requests.get(
                     url,
-                    headers=headers,
+                    headers=self.BROWSER_HEADERS,
                     proxies=proxy,
                     timeout=self.timeout,
                 )
@@ -157,6 +164,18 @@ class ResilientDuckDuckGoScraper:
 
                 return r.text
 
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code
+                logging.warning(f"[Scraper] HTTP error {status} on attempt {attempt}")
+
+                if status in (400, 401, 403):
+                    raise
+
+                if attempt == self.max_retries:
+                    raise
+
+                time.sleep(1.5 * attempt + random.random())
+
             except Exception as e:
                 logging.warning(f"[Scraper] Attempt {attempt} failed: {e}")
 
@@ -164,6 +183,7 @@ class ResilientDuckDuckGoScraper:
                     raise
 
                 time.sleep(1.5 * attempt + random.random())
+        return None
 
     # ---------------------------------------------------------
     # JS fallback hook
@@ -199,7 +219,7 @@ class ResilientDuckDuckGoScraper:
     # Clean text extraction
     # ---------------------------------------------------------
 
-    def _extract_snippet(self, html, max_chars=350):
+    def _extract_snippet(self, html, max_chars=200):
         """
         Extracts a short snippet from the page.
         - Removes scripts, nav, ads, etc.
@@ -229,3 +249,14 @@ class ResilientDuckDuckGoScraper:
             if "uddg" in qs:
                 return unquote(qs["uddg"][0])
         return href
+
+    def scrape_direct(self, url):
+        try:
+            html = requests.get(url, headers=self.BROWSER_HEADERS, timeout=10).text
+            logging.info(f"Successfully scraped {url} (length: {html})")
+            return html
+        except Exception as e:
+            return f"Error scraping {url}: {e}"
+
+    def is_url(text):
+        return re.match(r'https?://|^[\w\-]+\.\w{2,}', text) is not None
